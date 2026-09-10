@@ -363,7 +363,15 @@ impl Server {
                 thread::Builder::new()
                     .name("client_connection_thread".to_string())
                     .spawn_scoped(server_thread_scope, move || {
-                        for tcp_stream in listener.incoming() {
+                        loop {
+                            let (mut tcp_stream, peer_addr) = match listener.accept() {
+                                Ok(connection) => connection,
+                                Err(error) => {
+                                    warn!("Failed to accept client connection: {}", error);
+                                    thread::sleep(Duration::from_millis(100));
+                                    continue;
+                                }
+                            };
                             if !server_shared_ref.is_alive() {
                                 break;
                             }
@@ -372,9 +380,8 @@ impl Server {
                             debug!("Received new connection");
                             let response_sender_clone = response_sender.clone();
                             let client_notification_sender_clone = client_notification_sender_clone.clone();
-                            let mut tcp_stream = tcp_stream.unwrap();
                             thread::Builder::new()
-                                .name(format!("client_{}_thread", tcp_stream.peer_addr().unwrap()))
+                                .name(format!("client_{}_thread", peer_addr))
                                 .spawn_scoped(server_thread_scope, move || {
                                     PACKETVER.with(|ver| *ver.borrow_mut() = server_shared_ref.packetver());
 
@@ -389,10 +396,7 @@ impl Server {
                                             Ok(bytes_read) => {
                                                 if bytes_read == 0 {
                                                     info!("shutdown thread client");
-                                                    tcp_stream.shutdown(Shutdown::Both).expect(
-                                                        "Unable to shutdown incoming socket. Shutdown was done because remote socket \
-                                                         seems closed.",
-                                                    );
+                                                    let _ = tcp_stream.shutdown(Shutdown::Both);
                                                     break;
                                                 }
                                                 let packet = parse(&buffer[..bytes_read], server_shared_ref.packetver());
@@ -451,7 +455,7 @@ impl Server {
                                 if buffer.should_flush() {
                                     if let Some(tcp_stream) = server_ref.state().get_map_socket_for_char_id(buffer.session_id()) {
                                         let mut tcp_stream_guard = tcp_stream.write().unwrap();
-                                        if tcp_stream_guard.peer_addr().is_ok() {
+                                        if let Ok(peer_addr) = tcp_stream_guard.peer_addr() {
                                             debug!(
                                                 "Respond to {:?} with {} bytes with: {:02X?}",
                                                 tcp_stream_guard.peer_addr(),
@@ -463,7 +467,7 @@ impl Server {
                                             }
                                             if GlobalConfigService::instance().config().server.trace_packet {
                                                 debug_packets_from_vec(
-                                                    Some(tcp_stream_guard.peer_addr().as_ref().unwrap()),
+                                                    Some(&peer_addr),
                                                     PacketDirection::Backward,
                                                     GlobalConfigService::instance().packetver(),
                                                     buffer.data(),
@@ -476,8 +480,8 @@ impl Server {
                                                     buffer.data()
                                                 );
                                             }
-                                            if tcp_stream_guard.write_all(buffer.data()).is_ok() {
-                                                tcp_stream_guard.flush().unwrap();
+                                            if let Err(error) = tcp_stream_guard.write_all(buffer.data()).and_then(|_| tcp_stream_guard.flush()) {
+                                                warn!("Failed to notify client {}: {}", peer_addr, error);
                                             }
                                         } else {
                                             error!("{:?} socket has been closed", tcp_stream_guard.peer_addr().err());
