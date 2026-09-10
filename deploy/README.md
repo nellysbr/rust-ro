@@ -59,7 +59,7 @@ A pipeline:
 4. O instalador local valida o arquivo, para o jogo com SIGINT (salva personagens pelo fluxo existente), faz backup do PostgreSQL, troca a release e inicia o servico.
 5. Se a nova release nao ficar saudavel, volta ao binario anterior e informa falha no Actions.
 
-PRs usam apenas runner hospedado pelo GitHub. Deploys sao serializados e nao cancelam um reinicio em andamento. O instalador privilegiado pertence a root; a pipeline nao o substitui. Para atualizar o instalador ou as units, um administrador deve revisar as mudancas e reexecutar o bootstrap.
+PRs usam apenas runner hospedado pelo GitHub. Como o repositorio e publico, mantenha Settings → Actions → General → Approval for running fork pull request workflows em **Require approval for all external contributors**; revise alteracoes de workflow antes de aprovar execucoes externas. Deploys sao serializados e nao cancelam um reinicio em andamento. O instalador privilegiado pertence a root; a pipeline nao o substitui. Para atualizar o instalador ou as units, um administrador deve revisar as mudancas e reexecutar o bootstrap.
 
 Um deploy desconecta jogadores por alguns segundos; nao e atualizacao sem interrupcao. Evite fazer push durante uma sessao importante. O teste de prontidao verifica processo e porta; a validacao completa de jogo depende do cliente.
 

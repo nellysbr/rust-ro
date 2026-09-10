@@ -95,5 +95,21 @@ class RollbackTests(unittest.TestCase):
             self.assertIn(('/usr/local/sbin/ragzin-backup',), calls)
             self.assertNotIn(('systemctl', 'enable', 'ragzin.service'), calls)
 
+class FirstStartTests(unittest.TestCase):
+    def test_first_deploy_starts_an_inactive_unloaded_unit(self):
+        with mock.patch.object(installer.subprocess, 'run', return_value=subprocess.CompletedProcess([], 3)), \
+                mock.patch.object(installer, 'run') as run:
+            installer.start_service()
+        run.assert_called_once_with('systemctl', 'start', 'ragzin.service')
+
+    def test_failed_unit_is_reset_before_start(self):
+        with mock.patch.object(installer.subprocess, 'run', return_value=subprocess.CompletedProcess([], 0)), \
+                mock.patch.object(installer, 'run') as run:
+            installer.start_service()
+        self.assertEqual(run.call_args_list, [
+            mock.call('systemctl', 'reset-failed', 'ragzin.service'),
+            mock.call('systemctl', 'start', 'ragzin.service'),
+        ])
+
 if __name__ == '__main__':
     unittest.main()

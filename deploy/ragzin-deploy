@@ -60,6 +60,12 @@ def healthy():
         time.sleep(1)
     return False
 
+def start_service():
+    # reset-failed does not load an inactive unit on its first deployment.
+    if subprocess.run(['systemctl', 'is-failed', '--quiet', 'ragzin.service']).returncode == 0:
+        run('systemctl', 'reset-failed', 'ragzin.service')
+    run('systemctl', 'start', 'ragzin.service')
+
 def main():
     if os.geteuid() != 0 or len(sys.argv) != 2 or not re.fullmatch('[a-f0-9]{40}', sys.argv[1]):
         raise SystemExit('Uso: sudo ragzin-deploy <commit SHA completo>')
@@ -113,8 +119,7 @@ def main():
         try:
             run('/usr/local/sbin/ragzin-backup')
             switch(target)
-            run('systemctl', 'reset-failed', 'ragzin.service')
-            run('systemctl', 'start', 'ragzin.service')
+            start_service()
             if not healthy():
                 raise RuntimeError('Nova release nao iniciou corretamente')
         except BaseException:
@@ -122,8 +127,7 @@ def main():
             if previous is not None:
                 switch(previous)
                 if was_active:
-                    run('systemctl', 'reset-failed', 'ragzin.service')
-                    run('systemctl', 'start', 'ragzin.service')
+                    start_service()
                     if not healthy():
                         print('ATENCAO: rollback tambem falhou; verifique journalctl.', file=sys.stderr)
             else:
