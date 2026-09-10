@@ -41,6 +41,7 @@ use crate::util::packet::{PacketDirection, PacketsBuffer, debug_packets_from_vec
 use crate::util::tick::{delayed_tick, get_tick};
 
 pub mod boot;
+pub(crate) mod client_response;
 mod game_loop;
 pub mod map_instance_loop;
 pub mod model;
@@ -428,24 +429,11 @@ impl Server {
                 thread::Builder::new()
                     .name("client_response_thread".to_string())
                     .spawn_scoped(server_thread_scope, move || {
-                        while let Ok(response) = single_response_receiver.recv() {
-                            let tcp_stream = &response.socket();
-                            let data = response.serialized_packet();
-                            let mut tcp_stream_guard = tcp_stream.write().unwrap();
-                            debug!("Respond to {:?} with: {:02X?}", tcp_stream_guard.peer_addr(), data);
-                            if GlobalConfigService::instance().config().server.trace_packet {
-                                debug_packets_from_vec(
-                                    Some(tcp_stream_guard.peer_addr().as_ref().unwrap()),
-                                    PacketDirection::Backward,
-                                    GlobalConfigService::instance().packetver(),
-                                    data,
-                                    &Option::None,
-                                );
-                            }
-                            tcp_stream_guard.write_all(data).unwrap();
-                            tcp_stream_guard.flush().unwrap();
-                        }
-                        info!("Shutdown client_response_thread");
+                        client_response::run(
+                            single_response_receiver,
+                            server_ref_clone.packetver(),
+                            server_ref_clone.configuration.server.trace_packet,
+                        );
                     })
                     .unwrap();
                 // Start a thread sending packet to notify client from game update

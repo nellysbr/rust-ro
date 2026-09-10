@@ -57,3 +57,31 @@ fn map_greeting_preserves_the_following_map_entry_packet_boundary() {
         assert_eq!(decoded.pos_dir, [13, 150, 240]);
     }
 }
+
+#[test]
+fn disconnected_client_does_not_stop_responses_to_other_players() {
+    use std::io::Read;
+    use std::net::{Shutdown, TcpListener, TcpStream};
+    use std::sync::{mpsc, Arc, RwLock};
+    use std::time::Duration;
+    use crate::server::model::response::Response;
+
+    let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+    let _closed_client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+    let (closed_socket, _) = listener.accept().unwrap();
+    closed_socket.shutdown(Shutdown::Both).unwrap();
+    let mut healthy_client = TcpStream::connect(listener.local_addr().unwrap()).unwrap();
+    healthy_client.set_read_timeout(Some(Duration::from_secs(2))).unwrap();
+    let (healthy_socket, _) = listener.accept().unwrap();
+    let (sender, receiver) = mpsc::channel();
+    let worker = std::thread::spawn(move || crate::server::client_response::run(receiver, 20120307, true));
+    let packet = map_connection_packet(2000000, 20120307);
+    for socket in [closed_socket, healthy_socket] {
+        sender.send(Response::new(Arc::new(RwLock::new(socket)), packet.raw().clone())).unwrap();
+    }
+    drop(sender);
+    let mut received = [0; 6];
+    healthy_client.read_exact(&mut received).unwrap();
+    assert_eq!(received.as_slice(), packet.raw());
+    worker.join().expect("response worker survived the failed connection");
+}
