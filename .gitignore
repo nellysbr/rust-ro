@@ -11,3 +11,7 @@ dep.graph
 graph.png
 .vs
 .claude/settings.local.json
+# Local deploy artifacts and credentials
+/dist/
+/deploy/private/
+__pycache__/

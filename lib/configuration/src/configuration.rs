@@ -41,8 +41,21 @@ pub struct ServerConfig {
     pub log_level_module_override: Vec<String>,
     pub accounts: Vec<u32>,
     pub port: u16,
+    #[serde(default = "default_public_ip")]
+    pub public_ip: std::net::Ipv4Addr,
     pub enable_visual_debugger: bool,
     pub packetver: u32,
+}
+
+fn default_public_ip() -> std::net::Ipv4Addr {
+    std::net::Ipv4Addr::LOCALHOST
+}
+
+impl ServerConfig {
+    /// Packet serializers write u32 values in little-endian order.
+    pub fn public_ip_packet_value(&self) -> u32 {
+        u32::from_le_bytes(self.public_ip.octets())
+    }
 }
 
 #[derive(Deserialize, Debug, SettersAll, Clone)]
@@ -143,6 +156,8 @@ pub struct CityConfig {
 
 #[derive(Deserialize, Debug, Clone)]
 pub struct ProxyConfig {
+    #[serde(default = "proxy_enabled_by_default")]
+    pub enabled: bool,
     pub remote_login_server_ip: String,
     pub remote_login_server_port: u16,
     pub remote_char_server_ip: String,
@@ -1094,5 +1109,40 @@ mod tests {
                 assert!(!skill.bonus_to_target.is_empty());
             }
         }
+    }
+}
+
+fn proxy_enabled_by_default() -> bool {
+    true
+}
+
+#[cfg(test)]
+mod deployment_config_tests {
+    use super::*;
+
+    #[test]
+    fn public_address_uses_network_octets_on_the_wire() {
+        let mut json: serde_json::Value = serde_json::from_str(include_str!("../../../config.template.json")).unwrap();
+        json["server"]["public_ip"] = serde_json::json!("54.20.161.142");
+        let config: Config = serde_json::from_value(json).unwrap();
+        assert_eq!(config.server.public_ip_packet_value().to_le_bytes(), [54, 20, 161, 142]);
+    }
+
+    #[test]
+    fn old_configs_keep_local_address_and_proxies() {
+        let json = include_str!("../../../config.template.json");
+        let config: Config = serde_json::from_str(json).unwrap();
+        assert_eq!(config.server.public_ip, std::net::Ipv4Addr::LOCALHOST);
+        assert!(config.proxy.enabled);
+    }
+
+    #[test]
+    fn standalone_config_disables_proxies_and_rejects_invalid_address() {
+        let mut json: serde_json::Value = serde_json::from_str(include_str!("../../../config.template.json")).unwrap();
+        json["proxy"]["enabled"] = serde_json::json!(false);
+        let config: Config = serde_json::from_value(json.clone()).unwrap();
+        assert!(!config.proxy.enabled);
+        json["server"]["public_ip"] = serde_json::json!("invalid.example");
+        assert!(serde_json::from_value::<Config>(json).is_err());
     }
 }

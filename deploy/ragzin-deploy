@@ -1,0 +1,136 @@
+#!/usr/bin/env python3
+"""Root-owned installer; the runner may supply code, never root commands."""
+import fcntl
+import hashlib
+import json
+import os
+from pathlib import Path
+import re
+import shutil
+import socket
+import stat
+import subprocess
+import sys
+import tarfile
+import tempfile
+import time
+
+BASE = Path('/srv/ragzin')
+
+def run(*args, **kwargs):
+    return subprocess.run(args, check=True, **kwargs)
+
+def validate_members(archive):
+    members = archive.getmembers()
+    total = 0
+    allowed = {'server', 'config', 'native_functions_list.txt', 'REVISION'}
+    seen = set()
+    for member in members:
+        path = Path(member.name)
+        if (path.is_absolute() or '..' in path.parts or not path.parts
+                or path.parts[0] not in allowed or not (member.isfile() or member.isdir())):
+            raise ValueError(f'Entrada de arquivo invalida: {member.name!r}')
+        if member.name in seen:
+            raise ValueError('Entrada duplicada no arquivo')
+        seen.add(member.name)
+        total += member.size
+    if total > 2 * 1024**3 or len(members) > 50000:
+        raise ValueError('Artefato excede o limite de tamanho')
+    for required in ('server', 'native_functions_list.txt', 'REVISION'):
+        if not any(m.name == required and m.isfile() for m in members):
+            raise ValueError(f'Arquivo obrigatorio ausente: {required}')
+    return members
+
+def switch(target):
+    pending = BASE / '.current-next'
+    pending.unlink(missing_ok=True)
+    pending.symlink_to(target)
+    pending.replace(BASE / 'current')
+
+def healthy():
+    cfg = json.loads(Path('/etc/ragzin/config.json').read_text())
+    for _ in range(120):
+        if subprocess.run(['systemctl', 'is-active', '--quiet', 'ragzin.service']).returncode == 0:
+            try:
+                with socket.create_connection(('127.0.0.1', cfg['server']['port']), timeout=1):
+                    time.sleep(5)
+                    return subprocess.run(['systemctl', 'is-active', '--quiet', 'ragzin.service']).returncode == 0
+            except OSError:
+                pass
+        time.sleep(1)
+    return False
+
+def main():
+    if os.geteuid() != 0 or len(sys.argv) != 2 or not re.fullmatch('[a-f0-9]{40}', sys.argv[1]):
+        raise SystemExit('Uso: sudo ragzin-deploy <commit SHA completo>')
+    sha = sys.argv[1]
+    with open('/run/lock/ragzin-deploy.lock', 'w') as lock:
+        fcntl.flock(lock, fcntl.LOCK_EX)
+        releases = BASE / 'releases'
+        target = releases / sha
+        # Copy the upload into a root-only directory before validation (avoid races).
+        with tempfile.TemporaryDirectory(prefix='.stage-', dir=releases) as temporary:
+            stage = Path(temporary)
+            fd = os.open(BASE / 'incoming' / f'ragzin-{sha}.tar.gz', os.O_RDONLY | os.O_NOFOLLOW)
+            with os.fdopen(fd, 'rb') as source, (stage / 'upload.tar.gz').open('wb') as output:
+                if not stat.S_ISREG(os.fstat(source.fileno()).st_mode) or os.fstat(source.fileno()).st_size > 512 * 1024**2:
+                    raise ValueError('Upload invalido ou maior que 512 MiB')
+                copied = 0
+                while chunk := source.read(1024 * 1024):
+                    copied += len(chunk)
+                    if copied > 512 * 1024**2:
+                        raise ValueError('Upload cresceu acima de 512 MiB durante a leitura')
+                    output.write(chunk)
+            unpacked = stage / 'release'
+            unpacked.mkdir()
+            with tarfile.open(stage / 'upload.tar.gz', 'r:gz') as archive:
+                members = validate_members(archive)
+                archive.extractall(unpacked, members=members, filter='data')
+            if (unpacked / 'REVISION').read_text().strip() != sha:
+                raise ValueError('SHA do artefato difere do commit solicitado')
+            if not (unpacked / 'config').is_dir():
+                raise ValueError('Diretorio config ausente')
+            for path in unpacked.rglob('*'):
+                path.chmod(0o755 if path.is_dir() or path.name == 'server' else 0o644)
+            unpacked.chmod(0o755)
+            (unpacked / 'config.json').symlink_to('/etc/ragzin/config.json')
+            if target.exists():
+                # Reusing an existing release must never silently replace its code.
+                def manifest(root):
+                    files = {}
+                    for path in root.rglob('*'):
+                        if path.is_file() and not path.is_symlink():
+                            with path.open('rb') as data:
+                                files[str(path.relative_to(root))] = hashlib.file_digest(data, 'sha256').hexdigest()
+                    return files
+                if manifest(target) != manifest(unpacked):
+                    raise ValueError('Release existente tem outro conteudo; use um novo commit')
+            else:
+                unpacked.rename(target)
+        previous = (BASE / 'current').resolve() if (BASE / 'current').is_symlink() else None
+        was_active = subprocess.run(['systemctl', 'is-active', '--quiet', 'ragzin.service']).returncode == 0
+        run('systemctl', 'stop', 'ragzin.service')
+        try:
+            run('/usr/local/sbin/ragzin-backup')
+            switch(target)
+            run('systemctl', 'reset-failed', 'ragzin.service')
+            run('systemctl', 'start', 'ragzin.service')
+            if not healthy():
+                raise RuntimeError('Nova release nao iniciou corretamente')
+        except BaseException:
+            run('systemctl', 'stop', 'ragzin.service')
+            if previous is not None:
+                switch(previous)
+                if was_active:
+                    run('systemctl', 'reset-failed', 'ragzin.service')
+                    run('systemctl', 'start', 'ragzin.service')
+                    if not healthy():
+                        print('ATENCAO: rollback tambem falhou; verifique journalctl.', file=sys.stderr)
+            else:
+                (BASE / 'current').unlink(missing_ok=True)
+            raise
+        run('systemctl', 'enable', 'ragzin.service')
+        print(f'Deploy OK: {sha}')
+
+if __name__ == '__main__':
+    main()
