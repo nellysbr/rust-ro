@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+set -euo pipefail
+[[ $EUID == 0 ]] || { echo 'Execute como root.' >&2; exit 1; }
+umask 077
+install -d -m 700 /var/backups/ragzin
+backup=$(mktemp /var/backups/ragzin/.pending-XXXXXX)
+trap 'rm -f "$backup"' EXIT
+runuser -u postgres -- pg_dump -Fc --dbname=ragnarok > "$backup"
+pg_restore --list "$backup" >/dev/null
+final="/var/backups/ragzin/ragnarok-$(date -u +%Y%m%dT%H%M%S)-$$.dump"
+mv "$backup" "$final"
+find /var/backups/ragzin -maxdepth 1 -type f -name 'ragnarok-*.dump' -mtime +14 -delete
+printf 'Backup: %s\n' "$final"

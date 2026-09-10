@@ -289,7 +289,7 @@ pub fn handle_select_char(server: &Server, context: Request) {
         packet_ch_send_map_info.set_gid(char_id);
         packet_ch_send_map_info.set_map_name(map_name);
         let mut zserver_addr = ZserverAddr::new(GlobalConfigService::instance().packetver());
-        zserver_addr.set_ip(16777343); // 7F 00 00 01 -> to little endian -> 01 00 00 7F
+        zserver_addr.set_ip(server.configuration.server.public_ip_packet_value());
         zserver_addr.set_port(server.configuration.server.port as i16);
         packet_ch_send_map_info.set_addr(zserver_addr);
         packet_ch_send_map_info.fill_raw();
@@ -299,7 +299,7 @@ pub fn handle_select_char(server: &Server, context: Request) {
         packet_ch_send_map_info.set_gid(char_id);
         packet_ch_send_map_info.set_map_name(map_name);
         packet_ch_send_map_info.set_map_server_port(server.configuration.server.port as i16);
-        packet_ch_send_map_info.set_map_server_ip(16777343); // 7F 00 00 01 -> to little endian -> 01 00 00 7F
+        packet_ch_send_map_info.set_map_server_ip(server.configuration.server.public_ip_packet_value());
         packet_ch_send_map_info.fill_raw();
         socket_send!(context, packet_ch_send_map_info);
     }

@@ -1,0 +1,37 @@
+[Unit]
+Description=Ragzin Ragnarok server
+After=network-online.target postgresql.service
+Wants=network-online.target
+Requires=postgresql.service
+StartLimitIntervalSec=300
+StartLimitBurst=3
+
+[Service]
+Type=simple
+User=ragzin-game
+Group=ragzin-game
+WorkingDirectory=/srv/ragzin/current
+EnvironmentFile=/etc/ragzin/server.env
+ExecStart=/srv/ragzin/current/server
+# Upstream persists character state on Ctrl+C, not on SIGTERM.
+KillSignal=SIGINT
+TimeoutStopSec=60
+Restart=on-failure
+RestartSec=5
+UMask=0027
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+CapabilityBoundingSet=
+InaccessiblePaths=-/run/docker.sock -/run/containerd
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

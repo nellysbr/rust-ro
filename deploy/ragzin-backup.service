@@ -1,0 +1,9 @@
+[Unit]
+Description=Backup PostgreSQL do Ragzin
+After=postgresql.service
+Requires=postgresql.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/ragzin-backup
+UMask=0077

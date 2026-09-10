@@ -1,0 +1,10 @@
+[Unit]
+Description=Backup diario do Ragzin
+
+[Timer]
+OnCalendar=*-*-* 06:00:00 UTC
+Persistent=true
+RandomizedDelaySec=300
+
+[Install]
+WantedBy=timers.target
