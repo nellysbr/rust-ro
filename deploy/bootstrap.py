@@ -34,7 +34,15 @@ def clean_initial_dump(text):
     """Keep upstream static game data, excluding all sample players/accounts."""
     result = []
     skip = False
+    skip_insert = False
     for line in text.splitlines(keepends=True):
+        if line.lstrip().upper().startswith('INSERT INTO '):
+            table = line.split()[2].lower()
+            skip_insert = table not in {'ragnarok.item_db', 'ragnarok.mob_db'}
+        if skip_insert:
+            if line.rstrip().endswith(';'):
+                skip_insert = False
+            continue
         if line.startswith('COPY '):
             table = line.split()[1]
             skip = table not in {'ragnarok.item_db', 'ragnarok.mob_db'}

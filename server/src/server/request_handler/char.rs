@@ -212,9 +212,7 @@ pub fn handle_make_char(server: &Server, context: Request) {
         let created_char: CharacterInfoNeoUnionWrapped = server.repository.character_info(char_model.account_id, name).await.unwrap();
         created_char.data
     });
-    let mut packet_hc_accept_makechar_neo_union = PacketHcAcceptMakecharNeoUnion::new(GlobalConfigService::instance().packetver());
-    packet_hc_accept_makechar_neo_union.set_charinfo(created_char);
-    packet_hc_accept_makechar_neo_union.fill_raw();
+    let mut packet_hc_accept_makechar_neo_union = created_character_packet(created_char, server.packetver());
     socket_send!(context, packet_hc_accept_makechar_neo_union);
 }
 
@@ -339,9 +337,7 @@ pub fn handle_enter_game(server: &Server, context: Request) {
         let session = Arc::new(session.recreate_with_map_socket(context.socket()));
         sessions_guard.insert(aid, session.clone());
     }
-    let mut packet_map_connection = PacketMapConnection::new(GlobalConfigService::instance().packetver());
-    packet_map_connection.set_aid(aid);
-
+    let mut packet_map_connection = map_connection_packet(aid, server.packetver());
     socket_send!(context, packet_map_connection);
 
     /*
@@ -466,4 +462,20 @@ async fn load_chars_info(account_id: u32, server: &Server) -> PacketHcAcceptEnte
     accept_enter_neo_union.set_premium_end_slot(12);
     accept_enter_neo_union.set_total_slot_num(12);
     accept_enter_neo_union
+}
+
+/// Database rows are version-independent; serialize nested fields for this client.
+pub(crate) fn created_character_packet(character: CharacterInfoNeoUnion, packetver: u32) -> PacketHcAcceptMakecharNeoUnion {
+    let mut packet = PacketHcAcceptMakecharNeoUnion::new(packetver);
+    packet.set_charinfo(character);
+    packet.fill_raw_with_packetver(Some(packetver));
+    packet
+}
+
+/// The client expects the account greeting before the map-entry packet.
+pub(crate) fn map_connection_packet(account_id: u32, packetver: u32) -> PacketMapConnection {
+    let mut packet = PacketMapConnection::new(packetver);
+    packet.set_aid(account_id);
+    packet.fill_raw_with_packetver(Some(packetver));
+    packet
 }

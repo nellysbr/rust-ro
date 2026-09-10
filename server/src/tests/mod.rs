@@ -22,3 +22,6 @@ mod skill_service_test;
 mod skill_tree_service_test;
 #[cfg(test)]
 mod status_service_test;
+
+#[cfg(test)]
+mod connection_packet_tests;

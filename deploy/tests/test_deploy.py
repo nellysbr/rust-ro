@@ -56,6 +56,17 @@ class ArchiveTests(unittest.TestCase):
 
 
 
+class UpstreamSeedTests(unittest.TestCase):
+    def test_shipped_dump_does_not_import_sample_characters(self):
+        dump = (ROOT.parent / 'db' / 'pg.sql').read_text()
+        self.assertIn('insert into ragnarok.char ', dump)
+        cleaned = bootstrap.clean_initial_dump(dump)
+        self.assertNotIn('insert into ragnarok.char ', cleaned)
+        self.assertNotIn("'admin1'", cleaned)
+        self.assertIn('COPY ragnarok.item_db ', cleaned)
+        self.assertIn('COPY ragnarok.mob_db ', cleaned)
+
+
 class RollbackTests(unittest.TestCase):
     def test_failed_release_restores_previous_and_reports_failure(self):
         with tempfile.TemporaryDirectory() as tmp:
